@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: leilao
+      POSTGRES_PASSWORD: leilao
+      POSTGRES_DB: leilao
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U leilao']
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://leilao:leilao@db:5432/leilao
+      JWT_SECRET: ${JWT_SECRET:-compose-jwt-secret-troque-em-producao}
+      HASH_SECRET: ${HASH_SECRET:-compose-hash-secret-troque-em-producao}
+    ports:
+      - '3001:3001'
+
+volumes:
+  pgdata:
