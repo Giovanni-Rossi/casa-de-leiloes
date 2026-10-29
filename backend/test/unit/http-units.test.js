@@ -156,6 +156,19 @@ test('SSE sem mensagem inicial e canal global', async () => {
   }
 });
 
+test('SSE: canal inválido rejeita antes de abrir o stream (vira 404, não derruba o processo)', async () => {
+  const { req, res } = fakeSse();
+  const boom = new Error('id inválido');
+  await assert.rejects(
+    sseHandler(() => {
+      throw boom;
+    })(req, res),
+    boom,
+  );
+  assert.equal(res.headers, null, 'nenhum cabeçalho de stream foi enviado');
+  assert.equal(res.flushed, false);
+});
+
 test('job de liquidação: executa, não sobrepõe e registra falhas', async () => {
   mock.timers.enable({ apis: ['setInterval'] });
   try {

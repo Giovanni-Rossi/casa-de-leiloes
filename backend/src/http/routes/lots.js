@@ -39,14 +39,9 @@ lotsRouter.get(
     res.json({ bids: await roomBids(intParam(req.params.id), req.user?.id) });
   }),
 );
-lotsRouter.get(
-  '/lots/:id/stream',
-  sseHandler((req) => `lot:${intParam(req.params.id)}`),
-);
-lotsRouter.get(
-  '/stream',
-  sseHandler(() => 'global'),
-);
+// wrap: sem ele, um erro no handler assíncrono vira unhandledRejection e derruba o processo.
+lotsRouter.get('/lots/:id/stream', wrap(sseHandler((req) => `lot:${intParam(req.params.id)}`)));
+lotsRouter.get('/stream', wrap(sseHandler(() => 'global')));
 lotsRouter.post(
   '/lots/:id/bids',
   requireAuth('licitante'),
