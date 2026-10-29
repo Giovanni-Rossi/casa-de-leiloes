@@ -10,9 +10,10 @@ walletRouter.get(
   requireAuth(),
   wrap(async (req, res) => res.json(await walletWithHistory(req.user.id))),
 );
+// A carteira (leitura) é de todos — o leiloeiro recebe as vendas nela —, mas só licitante deposita.
 walletRouter.post(
   '/wallet/deposit',
-  requireAuth(),
+  requireAuth('licitante'),
   wrap(async (req, res) => {
     const cents = parseAmountCents(req.body.amountCents, {
       max: 100_000_000_00,

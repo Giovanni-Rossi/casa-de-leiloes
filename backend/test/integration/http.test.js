@@ -189,7 +189,9 @@ test('fluxo completo: leiloeiro cria lote, licitantes disputam, comprovante e au
     (await call('POST', `/api/lots/${id}/bids`, { body: { amountCents: 20000 } })).status,
     401,
   );
-  assert.equal((await bid(ana, 5000)).json.error.code, 'below_minimum');
+  const low = (await bid(ana, 5000)).json.error;
+  assert.equal(low.code, 'below_minimum');
+  assert.match(low.message, /mínimo aceito: R\$\s100,00\)$/, 'valor em reais, não em centavos');
   assert.equal((await bid(ana, 99999999)).json.error.code, 'insufficient_funds');
   assert.equal((await bid(ana, 10000)).status, 201);
   assert.equal((await bid(ana, 20000)).json.error.code, 'already_leading');
@@ -215,6 +217,17 @@ test('fluxo completo: leiloeiro cria lote, licitantes disputam, comprovante e au
   const wallet = await call('GET', '/api/wallet', { token: bia.token });
   assert.deepEqual([wallet.json.committedCents, wallet.json.availableCents], [11000, 89000]);
   assert.equal((await call('GET', '/api/wallet')).status, 401);
+  // leiloeiro vê a carteira (recebe as vendas nela), mas não deposita
+  assert.equal((await call('GET', '/api/wallet', { token: seller.token })).status, 200);
+  assert.equal(
+    (
+      await call('POST', '/api/wallet/deposit', {
+        token: seller.token,
+        body: { amountCents: 100 },
+      })
+    ).status,
+    403,
+  );
   assert.equal(
     (await call('POST', '/api/wallet/deposit', { token: ana.token, body: { amountCents: -5 } }))
       .status,
@@ -296,6 +309,12 @@ test('SSE: lote e vitrine recebem eventos em tempo real', async () => {
   assert.match(await globalStream.next(), /event: lot/);
   lotStream.close();
   globalStream.close();
+
+  // id inválido: 404 comum, sem abrir o stream (antes virava unhandledRejection e derrubava o processo)
+  const bad = await call('GET', '/api/lots/abc/stream');
+  assert.equal(bad.status, 404);
+  assert.equal(bad.json.error.code, 'not_found');
+  assert.equal((await call('GET', '/api/health')).status, 200);
 });
 
 test('server.start: migra, semeia, atende e liquida pelo job; stop encerra tudo', async () => {
@@ -309,7 +328,7 @@ test('server.start: migra, semeia, atende e liquida pelo job; stop encerra tudo'
   assert.equal(lots.lots.length, 1);
   await app.stop();
 
-  const noSeed = await start({ port: 0, autoSeed: false });
+  const noSeed = await start({ port: 0, autoSeed: false, signLegacy: true });
   await noSeed.stop();
   const defaults = await start({ port: 0 });
   await defaults.stop();

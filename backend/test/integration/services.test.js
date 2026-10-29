@@ -186,6 +186,14 @@ test('lotView e broadcast: myStatus e eventos SSE', async () => {
 test('wallet: saldo, depósito e histórico', async () => {
   const ana = await makeUser('licitante', 0, 'ana');
   await assert.rejects(walletOf(999), code('not_found'));
+  // falha no registro da movimentação desfaz o crédito (mesma transação)
+  await query(`ALTER TABLE transactions ADD CONSTRAINT t_no_7 CHECK (amount_cents <> 7)`);
+  try {
+    await assert.rejects(deposit(ana.id, 7), /t_no_7/);
+  } finally {
+    await query('ALTER TABLE transactions DROP CONSTRAINT t_no_7');
+  }
+  assert.equal((await walletOf(ana.id)).totalCents, 0, 'crédito revertido');
   assert.deepEqual(await deposit(ana.id, 250_00), {
     totalCents: 250_00,
     committedCents: 0,
@@ -495,5 +503,31 @@ test('seed: cria dados de teste e é idempotente', async () => {
   assert.equal((await query('SELECT 1 FROM users')).rowCount, 3);
   const lots = await listShowcase({});
   assert.deepEqual(lots.map((l) => l.phase).sort(), ['live', 'scheduled']);
-  assert.equal(lots.find((l) => l.phase === 'live').bidCount, 2);
+  const live = lots.find((l) => l.phase === 'live');
+  assert.equal(live.bidCount, 2);
+  assert.ok(new Date(live.endsAt) - Date.now() > 29 * 24 * 3_600_000, 'fica ao vivo por ~30 dias');
+  assert.equal((await publicAudit(live.id)).intact, true);
+});
+
+test('seed: num banco antigo cujo lote demo já encerrou, recria um lote ao vivo com lances', async () => {
+  await seed();
+  const liveNow = async () => (await listShowcase({ phase: 'live' })).filter((l) => l.bidCount);
+  const [first] = await liveNow();
+  // ainda ao vivo, mas acabando em 1 h: não serve como lote de demonstração
+  await query(`UPDATE lots SET ends_at = now() + interval '1 hour' WHERE id = $1`, [first.id]);
+
+  await seed();
+  const again = (await liveNow()).find((l) => l.id !== first.id);
+  assert.ok(again, 'novo lote demo criado');
+  assert.equal(again.bidCount, 2);
+  await seed();
+  assert.equal((await liveNow()).length, 2, 'com um lote duradouro, não cria outro');
+  assert.equal((await query('SELECT 1 FROM users')).rowCount, 3, 'não duplica contas');
+
+  // contas demo sem saldo: o lote é criado sem lances e a subida não falha
+  await expire(again.id);
+  await query(`UPDATE users SET balance_cents = 0 WHERE email = 'ana@teste.com'`);
+  await seed();
+  const created = (await listShowcase({ phase: 'live' })).filter((l) => l.bidCount === 0);
+  assert.equal(created.length, 1);
 });

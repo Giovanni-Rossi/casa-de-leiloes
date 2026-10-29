@@ -1,4 +1,4 @@
-import { db } from '../db.js';
+import { db, tx } from '../db.js';
 import { notFound } from '../errors.js';
 import * as users from '../repositories/users.js';
 import * as transactions from '../repositories/transactions.js';
@@ -13,10 +13,13 @@ export async function walletOf(userId, executor = db) {
   return { totalCents: total, committedCents: committed, availableCents: total - committed };
 }
 
-export async function deposit(userId, amountCents) {
-  await users.credit(db, userId, amountCents);
-  await transactions.insertDeposit(db, userId, amountCents);
-  return walletOf(userId);
+/** Crédito e registro da movimentação na mesma transação: ou os dois acontecem, ou nenhum. */
+export function deposit(userId, amountCents) {
+  return tx(async (c) => {
+    await users.credit(c, userId, amountCents);
+    await transactions.insertDeposit(c, userId, amountCents);
+    return walletOf(userId, c);
+  });
 }
 
 export async function walletWithHistory(userId) {
