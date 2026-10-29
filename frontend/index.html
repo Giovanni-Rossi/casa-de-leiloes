@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Casa de leilões online com lances ao vivo e histórico auditável."
+    />
+    <meta name="theme-color" content="#f5efe4" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#13110e" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Casa de Leilões</title>
+    <script>
+      // Aplica o tema antes da primeira pintura (evita o "piscar" do tema claro no modo escuro).
+      try {
+        var saved = localStorage.getItem('leilao.theme');
+        document.documentElement.dataset.theme =
+          saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
