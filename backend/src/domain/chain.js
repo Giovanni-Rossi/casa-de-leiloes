@@ -11,6 +11,16 @@ export function bidHash({ lotId, seq, bidderId, amountCents, createdMs, prevHash
 }
 
 /**
+ * MAC da "âncora" do lote (contagem + hash final). Sem ele, quem tem acesso ao banco poderia
+ * apagar os últimos lances e "rebobinar" a linha do lote para o lance anterior, usando só dados
+ * que já estão no banco. Com ele, rebobinar exige o segredo. O hash final já amarra valor e
+ * licitante do último lance, então não é preciso incluí-los aqui.
+ */
+export function anchorMac({ lotId, bidCount, headHash }) {
+  return hmac(`anchor|${lotId}|${bidCount}|${headHash ?? GENESIS_HASH}`);
+}
+
+/**
  * Pseudônimo do licitante dentro de UM lote. Varia por lote para que ninguém
  * consiga correlacionar o mesmo licitante entre lotes diferentes.
  */
@@ -23,10 +33,12 @@ export function pseudonym(lotId, bidderId) {
  * (head_hash, bid_count, lance atual e líder). Cobre:
  *  - edição de qualquer campo de um lance (o hash não bate);
  *  - remoção no meio (seq com buraco / prev_hash quebrado);
- *  - remoção do último lance (contagem/âncora não batem);
+ *  - remoção do último lance (contagem/âncora não batem), mesmo com a linha do lote
+ *    "rebobinada" (o MAC da âncora não confere);
  *  - inserção posterior (seq extra, ou hash inválido sem o segredo).
+ * `anchor: false` ignora só o MAC da âncora (usado ao assinar lotes antigos).
  */
-export function verifyChain(lot, bids) {
+export function verifyChain(lot, bids, { anchor = true } = {}) {
   const problems = [];
   let prev = GENESIS_HASH;
   bids.forEach((b, i) => {
@@ -68,6 +80,17 @@ export function verifyChain(lot, bids) {
     problems.push({
       seq: null,
       reason: 'Lance vencedor/atual do lote não corresponde ao último lance do histórico',
+    });
+  }
+  const expectedMac = anchorMac({
+    lotId: lot.id,
+    bidCount: lot.bid_count,
+    headHash: lot.head_hash,
+  });
+  if (anchor && lot.anchor_mac !== expectedMac) {
+    problems.push({
+      seq: null,
+      reason: 'Assinatura da âncora do lote não confere — registro do lote alterado no banco',
     });
   }
   return problems;

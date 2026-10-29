@@ -18,6 +18,8 @@ export function loadConfig(env) {
     // Segredo do HMAC da cadeia de lances. Fica FORA do banco: quem só tem acesso ao
     // banco não consegue recalcular hashes válidos depois de adulterar o histórico.
     hashSecret: secret('HASH_SECRET', 'dev-hash-secret'),
+    // Liga uma única vez, ao atualizar um banco criado antes do anchor_mac (veja o README).
+    signLegacyAnchors: env.SIGN_LEGACY_ANCHORS === 'true',
     antiSnipingMs: 2 * 60 * 1000,
     schedulerIntervalMs: 1000,
     catalogUrl: 'https://openaccess-api.clevelandart.org/api/artworks/',

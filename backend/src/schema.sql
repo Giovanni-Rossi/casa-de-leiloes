@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS lots (
   leader_id           INT REFERENCES users(id),
   bid_count           INT    NOT NULL DEFAULT 0,
   head_hash           TEXT,
+  -- HMAC(segredo, lote | bid_count | head_hash): impede "rebobinar" a âncora sem o segredo.
+  anchor_mac          TEXT,
   winner_id           INT REFERENCES users(id),
   final_cents         BIGINT,
   settled_at          TIMESTAMPTZ,
@@ -48,6 +50,8 @@ CREATE TABLE IF NOT EXISTS lots (
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   CHECK (ends_at > starts_at)
 );
+-- Bancos criados antes da coluna existir (lotes antigos ficam sem assinatura; veja SIGN_LEGACY_ANCHORS).
+ALTER TABLE lots ADD COLUMN IF NOT EXISTS anchor_mac TEXT;
 CREATE INDEX IF NOT EXISTS lots_status_ends_idx ON lots (status, ends_at);
 CREATE INDEX IF NOT EXISTS lots_leader_idx ON lots (leader_id) WHERE status = 'active';
 

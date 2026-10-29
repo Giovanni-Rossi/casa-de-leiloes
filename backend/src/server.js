@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { migrate } from './db.js';
 import { seed } from './seed.js';
+import { signLegacyAnchors } from './services/audit.js';
 import { createApp } from './http/app.js';
 import { startSettlementJob } from './jobs/settlementJob.js';
 
@@ -12,8 +13,10 @@ const publicDir = fileURLToPath(new URL('../public', import.meta.url));
 export async function start({
   port = config.port,
   autoSeed = process.env.AUTO_SEED !== 'false',
+  signLegacy = config.signLegacyAnchors,
 } = {}) {
   await migrate();
+  if (signLegacy) await signLegacyAnchors();
   if (autoSeed) await seed();
   const server = createApp({ publicDir }).listen(port);
   await new Promise((resolve) => server.once('listening', resolve));

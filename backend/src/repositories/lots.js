@@ -77,13 +77,27 @@ export async function listDueIds(db) {
 }
 
 /** Atualiza a "âncora" do lote (lance atual, líder, hash final) na mesma transação do lance. */
-export function recordBid(db, { lotId, amountCents, leaderId, seq, hash, endsAt }) {
+export function recordBid(db, { lotId, amountCents, leaderId, seq, hash, anchorMac, endsAt }) {
   return db.query(
     `UPDATE lots
-        SET current_bid_cents = $2, leader_id = $3, bid_count = $4, head_hash = $5, ends_at = $6
+        SET current_bid_cents = $2, leader_id = $3, bid_count = $4, head_hash = $5,
+            anchor_mac = $6, ends_at = $7
       WHERE id = $1`,
-    [lotId, amountCents, leaderId, seq, hash, endsAt],
+    [lotId, amountCents, leaderId, seq, hash, anchorMac, endsAt],
   );
+}
+
+export async function setAnchorMac(db, id, anchorMac) {
+  const { rows } = await db.query('UPDATE lots SET anchor_mac = $2 WHERE id = $1 RETURNING *', [
+    id,
+    anchorMac,
+  ]);
+  return rows[0];
+}
+
+export async function listWithoutAnchorMac(db) {
+  const { rows } = await db.query('SELECT * FROM lots WHERE anchor_mac IS NULL ORDER BY id');
+  return rows;
 }
 
 export function markSettledWithoutWinner(db, id) {

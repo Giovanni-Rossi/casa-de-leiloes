@@ -1,8 +1,10 @@
 import { db } from '../db.js';
-import { pseudonym, verifyChain } from '../domain/chain.js';
+import { anchorMac, pseudonym, verifyChain } from '../domain/chain.js';
 import { phaseOf } from '../domain/lot.js';
 import { notFound } from '../errors.js';
+import { logger } from '../logger.js';
 import * as bids from '../repositories/bids.js';
+import * as lots from '../repositories/lots.js';
 import * as receipts from '../repositories/receipts.js';
 import { getLot, getVisibleLot } from './lots.js';
 
@@ -22,6 +24,30 @@ export async function auditOf(lot) {
       hash: b.hash,
     })),
   };
+}
+
+/**
+ * Assina a âncora dos lotes criados antes de `anchor_mac` existir — só os de cadeia íntegra.
+ * Operação única e deliberada (SIGN_LEGACY_ANCHORS=true): se rodasse sozinha, bastaria apagar
+ * a assinatura no banco para ela ser refeita sobre um histórico adulterado.
+ */
+export async function signLegacyAnchors(log = logger) {
+  let signed = 0;
+  for (const lot of await lots.listWithoutAnchorMac(db)) {
+    const problems = verifyChain(lot, await bids.listByLot(db, lot.id), { anchor: false });
+    if (problems.length > 0) {
+      log.warn(
+        { lotId: lot.id, problems },
+        'lote antigo com histórico inconsistente: não assinado',
+      );
+      continue;
+    }
+    const mac = anchorMac({ lotId: lot.id, bidCount: lot.bid_count, headHash: lot.head_hash });
+    await lots.setAnchorMac(db, lot.id, mac);
+    signed++;
+  }
+  log.info({ signed }, 'âncoras de lotes antigos assinadas');
+  return signed;
 }
 
 export async function publicAudit(lotId) {

@@ -1,6 +1,7 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { resetDb, makeUser, liveLot, pool, query } from '../helpers.js';
+import { resetDb, makeUser, liveLot, pool, query, captureLogger } from '../helpers.js';
+import { signLegacyAnchors } from '../../src/services/audit.js';
 import { createLot, cancelLot } from '../../src/services/lots.js';
 import { placeBid } from '../../src/services/bidding.js';
 import { settleLot } from '../../src/services/settlement.js';
@@ -223,10 +224,53 @@ test('auditoria detecta edição, remoção e inserção direto no banco', async
     'restaurado volta a ser íntegro',
   );
 
-  // 2) remover o último lance (e ajustar a linha do lote para esconder)
+  // 2) remover o último lance
   await tamper('DELETE FROM bids WHERE lot_id = $1 AND seq = 3', [lot.id]);
   ({ lot: l, bids } = await load());
   assert.ok(verifyChain(l, bids).length > 0, 'remoção do último lance detectada');
+
+  // 3) …e "rebobinar" a linha do lote para o lance anterior, só com dados do próprio banco
+  await query(
+    `UPDATE lots l
+        SET bid_count = b.seq, head_hash = b.hash,
+            current_bid_cents = b.amount_cents, leader_id = b.bidder_id
+       FROM bids b
+      WHERE b.lot_id = l.id AND l.id = $1 AND b.seq = 2`,
+    [lot.id],
+  );
+  ({ lot: l, bids } = await load());
+  assert.deepEqual(
+    verifyChain(l, bids).map((p) => p.reason),
+    ['Assinatura da âncora do lote não confere — registro do lote alterado no banco'],
+    'âncora rebobinada detectada pelo MAC',
+  );
+});
+
+test('signLegacyAnchors: assina lotes antigos íntegros e recusa os adulterados', async () => {
+  const seller = await makeUser('leiloeiro');
+  const ana = await makeUser('licitante', 1000_00, 'ana');
+  const ok = await liveLot(createLot, seller.id);
+  const empty = await liveLot(createLot, seller.id);
+  const bad = await liveLot(createLot, seller.id);
+  await placeBid({ lotId: ok.id, userId: ana.id, amountCents: 100_00 });
+  await placeBid({ lotId: bad.id, userId: ana.id, amountCents: 100_00 });
+  // simula um banco anterior à coluna anchor_mac…
+  await query('UPDATE lots SET anchor_mac = NULL');
+  // …em que um dos lotes já estava inconsistente
+  await query('UPDATE lots SET current_bid_cents = 1 WHERE id = $1', [bad.id]);
+  const audit = async (id) => {
+    const l = (await query('SELECT * FROM lots WHERE id = $1', [id])).rows[0];
+    return verifyChain(l, (await query('SELECT * FROM bids WHERE lot_id = $1', [id])).rows);
+  };
+  assert.ok((await audit(ok.id)).length > 0, 'sem assinatura, a auditoria acusa');
+
+  const { logger: log, lines } = captureLogger();
+  assert.equal(await signLegacyAnchors(log), 2);
+  assert.deepEqual(await audit(ok.id), []);
+  assert.deepEqual(await audit(empty.id), []);
+  assert.ok((await audit(bad.id)).length > 0, 'o inconsistente continua acusado');
+  assert.ok(lines.some((x) => x.lotId === bad.id && /não assinado/.test(x.message)));
+  assert.equal(await signLegacyAnchors(log), 0, 'idempotente: o adulterado nunca é assinado');
 });
 
 test('auditoria detecta remoção no meio e inserção forjada sem o segredo', async () => {

@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bidHash, GENESIS_HASH, pseudonym, verifyChain } from '../../src/domain/chain.js';
+import {
+  anchorMac,
+  bidHash,
+  GENESIS_HASH,
+  pseudonym,
+  verifyChain,
+} from '../../src/domain/chain.js';
 
 const base = {
   lotId: 1,
@@ -41,6 +47,7 @@ function buildChain(amounts = [100, 200, 300]) {
     head_hash: last?.hash ?? null,
     current_bid_cents: last?.amount_cents ?? null,
     leader_id: last?.bidder_id ?? null,
+    anchor_mac: anchorMac({ lotId: 1, bidCount: bids.length, headHash: last?.hash ?? null }),
   };
   return { lot, bids };
 }
@@ -108,6 +115,39 @@ test('verifyChain: lance/líder do lote não bate com o último lance', () => {
   assert.ok(
     verifyChain({ ...lot, leader_id: 99 }, bids).some((p) => /Lance vencedor/.test(p.reason)),
   );
+});
+
+test('anchorMac: determinístico e sensível a lote, contagem e hash final', () => {
+  const a = { lotId: 1, bidCount: 2, headHash: 'a'.repeat(64) };
+  assert.equal(anchorMac(a), anchorMac({ ...a }));
+  assert.match(anchorMac(a), /^[0-9a-f]{64}$/);
+  for (const [k, v] of Object.entries({ lotId: 2, bidCount: 3, headHash: 'b'.repeat(64) }))
+    assert.notEqual(anchorMac({ ...a, [k]: v }), anchorMac(a), `campo ${k} deve alterar o MAC`);
+  // lote sem lances: head_hash nulo equivale ao gênese
+  assert.equal(
+    anchorMac({ lotId: 1, bidCount: 0, headHash: null }),
+    anchorMac({ lotId: 1, bidCount: 0, headHash: GENESIS_HASH }),
+  );
+});
+
+test('verifyChain: último lance removido com a âncora "rebobinada" (sem o segredo)', () => {
+  const { lot, bids } = buildChain();
+  // quem só tem o banco consegue copiar os dados do lance anterior para a linha do lote…
+  const rewound = {
+    ...lot,
+    bid_count: 2,
+    head_hash: bids[1].hash,
+    current_bid_cents: bids[1].amount_cents,
+    leader_id: bids[1].bidder_id,
+  };
+  const problems = verifyChain(rewound, bids.slice(0, 2));
+  // …mas não recalcular o MAC da âncora
+  assert.deepEqual(
+    problems.map((p) => p.reason),
+    ['Assinatura da âncora do lote não confere — registro do lote alterado no banco'],
+  );
+  assert.ok(verifyChain({ ...lot, anchor_mac: null }, bids).length > 0, 'âncora sem assinatura');
+  assert.deepEqual(verifyChain(rewound, bids.slice(0, 2), { anchor: false }), []);
 });
 
 test('verifyChain: lote com âncora mas sem lances (todos removidos)', () => {

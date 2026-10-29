@@ -1,4 +1,5 @@
 import { db, tx } from '../db.js';
+import { anchorMac } from '../domain/chain.js';
 import { filterLots, parseLotInput, phaseOf } from '../domain/lot.js';
 import { forbidden, notFound, rejection } from '../errors.js';
 import { logger } from '../logger.js';
@@ -47,7 +48,12 @@ export async function listMyBids(userId) {
 }
 
 export async function createLot(sellerId, input) {
-  const lot = await lots.insert(db, { sellerId, ...parseLotInput(input) });
+  const data = parseLotInput(input);
+  // O id só existe após o INSERT; a âncora vazia (0 lances) é assinada na mesma transação.
+  const lot = await tx(async (c) => {
+    const row = await lots.insert(c, { sellerId, ...data });
+    return lots.setAnchorMac(c, row.id, anchorMac({ lotId: row.id, bidCount: 0, headHash: null }));
+  });
   logger.info({ lotId: lot.id, sellerId }, 'lote criado');
   await broadcastLot(lot.id, 'created');
   return lot;

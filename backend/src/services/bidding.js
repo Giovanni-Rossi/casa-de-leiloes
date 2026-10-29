@@ -1,7 +1,7 @@
 import { tx } from '../db.js';
 import { config } from '../config.js';
-import { bidHash, GENESIS_HASH } from '../domain/chain.js';
-import { extendedEnd, minNextBid, phaseOf } from '../domain/lot.js';
+import { anchorMac, bidHash, GENESIS_HASH } from '../domain/chain.js';
+import { extendedEnd, formatBRL, minNextBid, phaseOf } from '../domain/lot.js';
 import { parseAmountCents } from '../domain/user.js';
 import { forbidden, notFound, rejection } from '../errors.js';
 import { logger } from '../logger.js';
@@ -35,7 +35,7 @@ export async function placeBid({ lotId, userId, amountCents }) {
     if (amountCents < minNextBid(lot))
       throw rejection(
         'below_minimum',
-        `Lance abaixo do mínimo (mínimo aceito: ${minNextBid(lot)} centavos)`,
+        `Lance abaixo do mínimo (mínimo aceito: ${formatBRL(minNextBid(lot))})`,
       );
     if (amountCents > (await walletOf(userId, c)).availableCents) {
       throw rejection('insufficient_funds', 'Saldo disponível insuficiente para este lance');
@@ -60,6 +60,7 @@ export async function placeBid({ lotId, userId, amountCents }) {
       leaderId: userId,
       seq,
       hash,
+      anchorMac: anchorMac({ lotId, bidCount: seq, headHash: hash }),
       endsAt: new Date(newEnd ?? lot.ends_at),
     });
     return { seq, extended: newEnd !== null };

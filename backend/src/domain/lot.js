@@ -10,6 +10,10 @@ export function phaseOf(lot, now = Date.now()) {
   return 'ended';
 }
 
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+/** Centavos -> "R$ 1.234,56" (para mensagens ao usuário). */
+export const formatBRL = (cents) => BRL.format(cents / 100);
+
 export const minNextBid = (lot) =>
   lot.bid_count === 0 ? lot.starting_bid_cents : lot.current_bid_cents + lot.min_increment_cents;
 
