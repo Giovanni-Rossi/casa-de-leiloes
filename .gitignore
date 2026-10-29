@@ -1,0 +1,24 @@
+# Dependências
+node_modules/
+
+# Builds e artefatos gerados
+dist/
+backend/public/
+coverage/
+*.lcov
+
+# Variáveis de ambiente (segredos). O modelo .env.example é versionado.
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editores e sistema operacional
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
