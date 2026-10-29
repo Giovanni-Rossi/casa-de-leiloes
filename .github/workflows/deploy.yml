@@ -1,0 +1,49 @@
+name: Deploy (Google Cloud Run)
+
+# Roda só depois que o CI passou na main. Fica inativo (pulado) enquanto a variável
+# de repositório GCP_PROJECT_ID não existir — então forks e repositórios sem GCP não falham.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # necessário para autenticar no GCP via OIDC (sem chave de serviço)
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      vars.GCP_PROJECT_ID != '' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Deploy
+        # A configuração do serviço (Cloud SQL, segredos, CPU sempre alocada, 1 instância)
+        # foi definida por deploy/gcp-deploy.sh e é preservada; aqui só se troca o código.
+        run: |
+          gcloud run deploy casa-de-leiloes \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --region "${{ vars.GCP_REGION || 'southamerica-east1' }}" \
+            --source .
+      - name: Verifica o serviço publicado
+        run: |
+          URL=$(gcloud run services describe casa-de-leiloes \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --region "${{ vars.GCP_REGION || 'southamerica-east1' }}" \
+            --format 'value(status.url)')
+          curl -fsS "$URL/api/health"
